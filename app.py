@@ -396,6 +396,25 @@ def test_webhook():
 def verify_url(request):
     """验证回调URL - 企业微信验证接口"""
     try:
+        # 调试：检查所有环境变量
+        logger.info("=== 环境变量调试信息 ===")
+        wechat_env_vars = [
+            'WECHAT_CORPID', 'WECHAT_CORPSECRET', 'WECHAT_AGENTID', 
+            'WECHAT_USER_IDS', 'WECHAT_TOKEN', 'WECHAT_ENCODING_AES_KEY'
+        ]
+        for var in wechat_env_vars:
+            value = os.getenv(var)
+            if value:
+                # 隐藏敏感信息
+                if 'SECRET' in var or 'TOKEN' in var or 'KEY' in var:
+                    display_value = value[:8] + '*' * (len(value) - 8)
+                else:
+                    display_value = value
+                logger.info(f"  {var}: {display_value}")
+            else:
+                logger.info(f"  {var}: 未设置")
+        logger.info("=== 环境变量调试结束 ===")
+        
         # 获取企业微信验证参数
         msg_signature = request.args.get('msg_signature', '')
         timestamp = request.args.get('timestamp', '')
