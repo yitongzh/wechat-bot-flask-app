@@ -149,57 +149,52 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         aes_key = base64.b64decode(encoding_aes_key + "=")
         logger.info(f"AES密钥长度: {len(aes_key)}")
         
-        # 企业微信官方文档格式：
-        # 16字节随机数 + 4字节消息长度 + 消息内容 + 企业ID + PKCS7填充
-        # 但是消息长度可能在不同的位置，让我们尝试不同的解析方式
+        # 企业微信echostr格式：
+        # random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
         
-        logger.info(f"完整数据: {encrypted_data.hex()}")
+        # 提取随机数（前16字节）
+        random_16bytes = encrypted_data[:16]
+        logger.info(f"随机数: {random_16bytes.hex()}")
         
-        # 尝试从不同位置提取消息长度
-        possible_lengths = []
-        for i in range(len(encrypted_data) - 4):
-            try:
-                length = struct.unpack("!I", encrypted_data[i:i+4])[0]
-                if 0 < length < 1000:  # 合理的长度范围
-                    possible_lengths.append((i, length))
-            except:
-                continue
+        # 提取消息长度（接下来4字节）
+        msg_len_bytes = encrypted_data[16:20]
+        msg_len = struct.unpack("!I", msg_len_bytes)[0]
+        logger.info(f"消息长度: {msg_len}")
         
-        logger.info(f"可能的长度位置: {possible_lengths}")
+        # 检查消息长度是否合理
+        if msg_len > 1000 or msg_len < 0:
+            logger.error(f"消息长度不合理: {msg_len}")
+            return echostr
         
-        # 如果找到合理的长度，使用第一个
-        if possible_lengths:
-            length_pos, msg_len = possible_lengths[0]
-            logger.info(f"使用长度位置 {length_pos}, 长度: {msg_len}")
-            
-            # 提取随机数（前16字节）
-            random_16bytes = encrypted_data[:16]
-            logger.info(f"随机数: {random_16bytes.hex()}")
-            
-            # 提取加密数据（跳过长度字段）
-            start_pos = length_pos + 4
-            encrypted_msg = encrypted_data[start_pos:]
-            logger.info(f"加密数据长度: {len(encrypted_msg)}")
-            
-            # 简单的XOR解密（仅用于测试）
-            decrypted_data = bytearray()
-            for i, byte in enumerate(encrypted_msg):
-                decrypted_data.append(byte ^ random_16bytes[i % 16])
-            
-            logger.info(f"XOR解密完成，数据长度: {len(decrypted_data)}")
-            
-            # 尝试提取内容（前msg_len字节）
-            try:
-                content = decrypted_data[:msg_len].decode('utf-8')
-                logger.info(f"解密成功: {content}")
-                return content
-            except Exception as e:
-                logger.warning(f"解密失败，无法解码UTF-8: {e}")
-        else:
-            logger.warning("未找到合理的消息长度")
+        # 提取加密数据（从第20字节开始）
+        encrypted_msg = encrypted_data[20:]
+        logger.info(f"加密数据长度: {len(encrypted_msg)}")
         
-        logger.warning("返回原始echostr")
-        return echostr
+        # 简单的XOR解密（仅用于测试）
+        # 注意：这不是真正的AES解密，只是为了让应用能运行
+        decrypted_data = bytearray()
+        for i, byte in enumerate(encrypted_msg):
+            decrypted_data.append(byte ^ random_16bytes[i % 16])
+        
+        logger.info(f"XOR解密完成，数据长度: {len(decrypted_data)}")
+        
+        # 提取消息内容（前msg_len字节）
+        msg_content = decrypted_data[:msg_len]
+        logger.info(f"消息内容长度: {len(msg_content)}")
+        
+        # 验证企业ID（msg_len字节之后的内容）
+        received_corpid = decrypted_data[msg_len:].decode('utf-8')
+        logger.info(f"接收到的企业ID: {received_corpid}")
+        logger.info(f"期望的企业ID: {corpid}")
+        
+        if received_corpid != corpid:
+            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
+            return echostr
+        
+        # 返回解密后的消息
+        result = msg_content.decode('utf-8')
+        logger.info(f"解密成功: {result}")
+        return result
             
     except Exception as e:
         logger.error(f"解密异常: {e}")
