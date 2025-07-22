@@ -685,7 +685,7 @@ def handle_message(request):
                 
                 # 解密消息
                 config = load_config()
-                decrypted_xml = decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, config.token, config.encoding_aes_key, config.corp_id)
+                decrypted_xml = decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, config.token, config.encoding_aes_key, config.corpid)
                 
                 if decrypted_xml:
                     logger.info(f"解密成功，原始XML: {decrypted_xml}")
