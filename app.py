@@ -28,36 +28,66 @@ from src.wx_stockbot.client import WeChatClient
 
 # 尝试导入AES解密
 try:
-    # 纯Python AES实现
-    from aes_utils import decrypt_wechat_echostr
+    # 使用pyaes进行AES解密
+    import pyaes
     import base64
     import struct
     import hashlib
     import hmac
     WECHAT_CRYPTO_AVAILABLE = True
-    logger.info("纯Python AES模块可用")
+    logger.info("pyaes AES模块可用")
 except ImportError as e:
     WECHAT_CRYPTO_AVAILABLE = False
-    logger.error(f"纯Python AES模块导入失败: {e}")
-    logger.error("请确保基础模块可用")
+    logger.error(f"pyaes AES模块导入失败: {e}")
+    logger.error("请确保pyaes已正确安装")
 
 def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
-    """使用纯Python解密企业微信的echostr"""
+    """使用pyaes解密企业微信的echostr"""
     try:
         logger.info("开始解密...")
         
         # 检查模块是否可用
         if not WECHAT_CRYPTO_AVAILABLE:
-            logger.error("纯Python AES模块不可用")
+            logger.error("pyaes AES模块不可用")
             return echostr
         
-        # 使用纯Python AES解密
-        logger.info("使用纯Python AES解密...")
-        decrypted_data = decrypt_wechat_echostr(echostr, encoding_aes_key)
+        # Base64解码
+        encrypted_data = base64.b64decode(echostr)
+        logger.info(f"Base64解码成功，数据长度: {len(encrypted_data)}")
         
-        if decrypted_data is None:
-            logger.error("AES解密失败")
-            return echostr
+        # 获取AES密钥 - 确保是32字节
+        aes_key = base64.b64decode(encoding_aes_key + "=")
+        if len(aes_key) != 32:
+            # 如果密钥长度不是32字节，截取前32字节
+            aes_key = aes_key[:32]
+            logger.warning(f"AES密钥长度调整为32字节: {len(aes_key)}")
+        
+        # 企业微信echostr格式：
+        # 整个数据先用AES解密，解密后的格式为：
+        # random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
+        
+        # 提取随机数（前16字节）作为IV
+        random_16bytes = encrypted_data[:16]
+        logger.info(f"随机数: {random_16bytes.hex()}")
+        
+        # 提取加密数据（从第16字节开始）
+        encrypted_msg = encrypted_data[16:]
+        logger.info(f"加密数据长度: {len(encrypted_msg)}")
+        
+        # 使用pyaes进行AES CBC解密
+        logger.info("使用pyaes AES解密...")
+        aes = pyaes.AESModeOfOperationCBC(aes_key, iv=random_16bytes)
+        decrypted_data = b''
+        
+        # 分块解密
+        for i in range(0, len(encrypted_msg), 16):
+            block = encrypted_msg[i:i+16]
+            if len(block) == 16:
+                decrypted_block = aes.decrypt(block)
+                decrypted_data += decrypted_block
+            else:
+                # 最后一个块可能不足16字节，需要特殊处理
+                break
         
         logger.info(f"AES解密成功，数据长度: {len(decrypted_data)}")
         
@@ -465,7 +495,7 @@ def verify_url(request):
             logger.info(f"  encoding_aes_key: {config.encoding_aes_key[:10]}...")
             logger.info(f"  corpid: {config.corpid}")
             
-            # 使用纯Python解密
+            # 使用pyaes解密
             decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
             if decrypted_echostr and decrypted_echostr != echostr:
                 logger.info(f"解密成功，返回: {decrypted_echostr}")
