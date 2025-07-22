@@ -137,15 +137,51 @@ def decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, token, encod
         
         logger.info("签名验证成功，开始解密消息...")
         
-        # 使用与echostr相同的解密方法
-        decrypted_content = decrypt_echostr_simple(encrypted_msg, encoding_aes_key, corpid)
+        # 解密消息
+        aes_key = base64.b64decode(encoding_aes_key + "=")
+        encrypted_data = base64.b64decode(encrypted_msg)
         
-        if decrypted_content:
-            logger.info(f"消息解密成功: {decrypted_content}")
-            return decrypted_content
-        else:
-            logger.error("消息解密失败")
-            return None
+        # 使用pyaes进行AES解密（CBC模式）
+        # 提取IV（前16字节）
+        iv = encrypted_data[:16]
+        ciphertext = encrypted_data[16:]
+        
+        # 创建AES解密器
+        cipher = pyaes.AESModeOfOperationCBC(aes_key, iv=iv)
+        
+        # 解密
+        decrypted_data = b''
+        for i in range(0, len(ciphertext), 16):
+            block = ciphertext[i:i+16]
+            if len(block) == 16:
+                decrypted_block = cipher.decrypt(block)
+                decrypted_data += decrypted_block
+        
+        # 去除PKCS7填充
+        padding_len = decrypted_data[-1]
+        if padding_len <= 16:
+            decrypted_data = decrypted_data[:-padding_len]
+        
+        # 提取XML内容
+        # 直接查找XML标签，避免消息长度解析问题
+        xml_start = decrypted_data.find(b'<xml>')
+        if xml_start != -1:
+            xml_end = decrypted_data.find(b'</xml>', xml_start)
+            if xml_end != -1:
+                xml_content = decrypted_data[xml_start:xml_end+6].decode('utf-8')
+                logger.info(f"解密成功，XML长度: {len(xml_content)}")
+                return xml_content
+        
+        # 如果找不到XML标签，尝试使用消息长度解析
+        if len(decrypted_data) >= 20:
+            msg_len = struct.unpack("!I", decrypted_data[16:20])[0]
+            if msg_len <= len(decrypted_data) - 20:
+                xml_content = decrypted_data[20:20+msg_len].decode('utf-8')
+                logger.info(f"解密成功，XML长度: {msg_len}")
+                return xml_content
+        
+        logger.error("无法提取XML内容")
+        return None
             
     except Exception as e:
         logger.error(f"解密消息异常: {e}")
