@@ -163,9 +163,9 @@ def initialize_bot():
     if bot is None:
         logger.info("初始化微信机器人...")
         if init_bot():
-            # 启动定时发送
-            start_timer()
-            logger.info("机器人初始化成功，定时发送已启动")
+            # 暂时关闭定时发送
+            # start_timer()
+            logger.info("机器人初始化成功，定时发送已关闭")
         else:
             logger.error("机器人初始化失败")
 
@@ -480,6 +480,47 @@ def test_webhook():
         return f"测试异常: {str(e)}", 500
 
 
+@app.route('/test_message', methods=['POST'])
+def test_message():
+    """测试消息处理功能"""
+    try:
+        # 模拟企业微信的消息格式
+        test_data = {
+            'ToUserName': 'ww38cb388d243c322e',
+            'FromUserName': 'test_user_123',
+            'CreateTime': int(time.time()),
+            'MsgType': 'text',
+            'Content': '信息更新',
+            'MsgId': '123456789'
+        }
+        
+        logger.info("=== 测试消息处理 ===")
+        logger.info(f"测试数据: {test_data}")
+        
+        # 模拟处理消息
+        if not bot:
+            return jsonify({'error': '机器人未初始化'}), 500
+        
+        response = bot.handle_incoming_message(test_data['Content'], test_data['FromUserName'])
+        logger.info(f"测试响应: {response}")
+        
+        if response:
+            xml_response = f"""<xml>
+<ToUserName><![CDATA[{test_data['FromUserName']}]]></ToUserName>
+<FromUserName><![CDATA[{test_data['ToUserName']}]]></FromUserName>
+<CreateTime>{test_data['CreateTime']}</CreateTime>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[{response}]]></Content>
+</xml>"""
+            return xml_response, 200, {'Content-Type': 'application/xml'}
+        else:
+            return '', 200
+            
+    except Exception as e:
+        logger.error(f"测试消息处理异常: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 def verify_url(request):
     """验证回调URL - 企业微信验证接口"""
     try:
@@ -553,12 +594,32 @@ def verify_url(request):
 def handle_message(request):
     """处理接收到的消息"""
     try:
-        data = request.get_json()
+        # 诊断：记录原始请求数据
+        logger.info("=== 消息接收诊断 ===")
+        logger.info(f"请求方法: {request.method}")
+        logger.info(f"请求头: {dict(request.headers)}")
+        logger.info(f"请求体长度: {len(request.get_data())}")
+        
+        # 获取原始数据
+        raw_data = request.get_data(as_text=True)
+        logger.info(f"原始请求数据: {raw_data}")
+        
+        # 尝试解析JSON
+        try:
+            data = request.get_json()
+            logger.info(f"解析的JSON数据: {data}")
+        except Exception as e:
+            logger.error(f"JSON解析失败: {e}")
+            return jsonify({'error': '无效的JSON数据'}), 400
+        
         if not data:
+            logger.error("JSON数据为空")
             return jsonify({'error': '无效的JSON数据'}), 400
         
         # 解析消息
         msg_type = data.get('MsgType', '')
+        logger.info(f"消息类型: {msg_type}")
+        logger.info("=== 消息接收诊断结束 ===")
         
         if msg_type == 'text':
             content = data.get('Content', '')
