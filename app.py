@@ -119,15 +119,25 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         received_corpid_bytes = decrypted_data[4+msg_len:]
         
         # 处理PKCS7填充 - 查找最后一个字节作为填充长度
+        logger.info(f"原始企业ID字节: {received_corpid_bytes}")
         if received_corpid_bytes:
             padding_length = received_corpid_bytes[-1]
+            logger.info(f"检测到的填充长度: {padding_length}")
             if padding_length <= 16 and padding_length > 0:
                 # 检查是否所有填充字节都正确
                 padding_bytes = received_corpid_bytes[-padding_length:]
+                logger.info(f"填充字节: {padding_bytes}")
+                logger.info(f"所有填充字节都正确: {all(b == padding_length for b in padding_bytes)}")
                 if all(b == padding_length for b in padding_bytes):
                     # 移除填充
                     received_corpid_bytes = received_corpid_bytes[:-padding_length]
                     logger.info(f"移除PKCS7填充: {padding_length}字节")
+                else:
+                    logger.warning(f"填充字节不正确，不进行填充移除")
+            else:
+                logger.info(f"填充长度不合理: {padding_length}，不进行填充移除")
+        else:
+            logger.warning("企业ID字节为空")
         
         received_corpid = received_corpid_bytes.decode('utf-8')
         logger.info(f"接收到的企业ID字节: {received_corpid_bytes}")
