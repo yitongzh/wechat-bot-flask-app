@@ -16,9 +16,6 @@ from datetime import datetime
 from typing import Optional
 
 from flask import Flask, request, jsonify, render_template_string
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent
@@ -137,71 +134,10 @@ def timer_loop():
             time.sleep(60)
 
 
-def decrypt_echostr(echostr, encoding_aes_key, corpid):
-    """解密企业微信的echostr"""
-    try:
-        logger.info("开始cryptography解密...")
-        
-        # Base64解码
-        encrypted_data = base64.b64decode(echostr)
-        logger.info(f"Base64解码成功，数据长度: {len(encrypted_data)}")
-        
-        # 获取EncodingAESKey
-        aes_key = base64.b64decode(encoding_aes_key + "=")
-        logger.info(f"AES密钥长度: {len(aes_key)}")
-        
-        # 提取随机数（前16字节）
-        random_16bytes = encrypted_data[:16]
-        logger.info(f"随机数: {random_16bytes.hex()}")
-        
-        # 提取加密数据
-        encrypted_msg = encrypted_data[16:-4]
-        logger.info(f"加密数据长度: {len(encrypted_msg)}")
-        
-        # 提取企业ID（后4字节）
-        msg_len = struct.unpack("!I", encrypted_data[-4:])[0]
-        logger.info(f"消息长度: {msg_len}")
-        
-        # 解密
-        cipher = Cipher(algorithms.AES(aes_key), modes.CBC(random_16bytes), backend=default_backend())
-        decryptor = cipher.decryptor()
-        decrypted_data = decryptor.update(encrypted_msg) + decryptor.finalize()
-        logger.info(f"AES解密成功，数据长度: {len(decrypted_data)}")
-        
-        # 去除填充
-        unpadder = padding.PKCS7(128).unpadder()
-        unpadded_data = unpadder.update(decrypted_data) + unpadder.finalize()
-        logger.info(f"去除填充成功，数据长度: {len(unpadded_data)}")
-        
-        # 提取消息内容（去掉前4字节的随机数）
-        content = unpadded_data[16:msg_len+16]
-        logger.info(f"提取内容长度: {len(content)}")
-        
-        # 验证企业ID
-        received_corpid = content[msg_len:].decode('utf-8')
-        logger.info(f"接收到的企业ID: {received_corpid}")
-        logger.info(f"期望的企业ID: {corpid}")
-        
-        if received_corpid != corpid:
-            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
-            return None
-        
-        # 返回解密后的消息
-        result = content[:msg_len].decode('utf-8')
-        logger.info(f"解密成功，结果: {result}")
-        return result
-        
-    except Exception as e:
-        logger.error(f"解密echostr失败: {e}")
-        import traceback
-        logger.error(f"详细错误: {traceback.format_exc()}")
-        return None
-
-
 def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
-    """使用纯Python实现的简单解密（备用方案）"""
+    """使用纯Python实现的解密（主要方案）"""
     try:
-        logger.info("开始备用解密...")
+        logger.info("开始解密...")
         import base64
         import struct
         
@@ -236,15 +172,15 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         # 尝试提取内容
         try:
             content = decrypted_data[:msg_len].decode('utf-8')
-            logger.info(f"备用解密成功: {content}")
+            logger.info(f"解密成功: {content}")
             return content
         except Exception as e:
-            logger.warning(f"备用解密失败，无法解码UTF-8: {e}")
+            logger.warning(f"解密失败，无法解码UTF-8: {e}")
             logger.warning("返回原始echostr")
             return echostr
             
     except Exception as e:
-        logger.error(f"备用解密异常: {e}")
+        logger.error(f"解密异常: {e}")
         import traceback
         logger.error(f"详细错误: {traceback.format_exc()}")
         return echostr
@@ -489,35 +425,13 @@ def verify_url(request):
             logger.info(f"  encoding_aes_key: {config.encoding_aes_key[:10]}...")
             logger.info(f"  corpid: {config.corpid}")
             
-            # 首先尝试使用cryptography解密
-            try:
-                logger.info("尝试使用cryptography解密...")
-                decrypted_echostr = decrypt_echostr(echostr, config.encoding_aes_key, config.corpid)
-                if decrypted_echostr:
-                    logger.info(f"cryptography解密成功，返回: {decrypted_echostr}")
-                    return decrypted_echostr
-                else:
-                    logger.warning("cryptography解密返回None")
-            except ImportError as e:
-                logger.warning(f"cryptography模块不可用: {e}")
-                logger.info("使用备用解密方案...")
-                decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
-                if decrypted_echostr and decrypted_echostr != echostr:
-                    logger.info(f"备用解密成功，返回: {decrypted_echostr}")
-                    return decrypted_echostr
-                else:
-                    logger.warning("备用解密失败或返回原始值")
-            except Exception as e:
-                logger.error(f"cryptography解密失败: {e}")
-                logger.info("尝试备用解密方案...")
-                decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
-                if decrypted_echostr and decrypted_echostr != echostr:
-                    logger.info(f"备用解密成功，返回: {decrypted_echostr}")
-                    return decrypted_echostr
-                else:
-                    logger.warning("备用解密失败或返回原始值")
-            
-            logger.warning("所有解密方案都失败，直接返回原始echostr")
+            # 使用纯Python解密方案
+            decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
+            if decrypted_echostr and decrypted_echostr != echostr:
+                logger.info(f"解密成功，返回: {decrypted_echostr}")
+                return decrypted_echostr
+            else:
+                logger.warning("解密失败或返回原始值")
         else:
             logger.info("未配置EncodingAESKey或CorpID，跳过解密")
         
