@@ -148,6 +148,55 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         return echostr
 
 
+def decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, token, encoding_aes_key, corpid):
+    """解密企业微信消息"""
+    try:
+        # 验证签名
+        signature = generate_signature(token, timestamp, nonce, encrypted_msg)
+        if signature != msg_signature:
+            logger.error(f"签名验证失败: 期望={msg_signature}, 实际={signature}")
+            return None
+        
+        logger.info("签名验证成功，开始解密消息...")
+        
+        # 使用与echostr相同的解密方法
+        decrypted_content = decrypt_echostr_simple(encrypted_msg, encoding_aes_key, corpid)
+        
+        if decrypted_content:
+            logger.info(f"消息解密成功: {decrypted_content}")
+            return decrypted_content
+        else:
+            logger.error("消息解密失败")
+            return None
+            
+    except Exception as e:
+        logger.error(f"解密消息异常: {e}")
+        return None
+
+
+def generate_signature(token, timestamp, nonce, encrypted_msg):
+    """生成签名"""
+    try:
+        # 按字典序排序
+        params = [token, timestamp, nonce, encrypted_msg]
+        params.sort()
+        
+        # 拼接字符串
+        string_to_sign = ''.join(params)
+        logger.info(f"待签名字符串: {string_to_sign}")
+        
+        # SHA1哈希
+        import hashlib
+        signature = hashlib.sha1(string_to_sign.encode('utf-8')).hexdigest()
+        logger.info(f"生成的签名: {signature}")
+        
+        return signature
+        
+    except Exception as e:
+        logger.error(f"生成签名异常: {e}")
+        return None
+
+
 # 创建Flask应用
 app = Flask(__name__)
 
@@ -604,17 +653,66 @@ def handle_message(request):
         raw_data = request.get_data(as_text=True)
         logger.info(f"原始请求数据: {raw_data}")
         
-        # 尝试解析JSON
-        try:
-            data = request.get_json()
-            logger.info(f"解析的JSON数据: {data}")
-        except Exception as e:
-            logger.error(f"JSON解析失败: {e}")
-            return jsonify({'error': '无效的JSON数据'}), 400
+        # 检查是否是加密消息（XML格式）
+        if raw_data.strip().startswith('<xml>'):
+            logger.info("检测到XML格式的加密消息，开始解密...")
+            
+            # 解析XML获取加密数据
+            try:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(raw_data)
+                
+                # 获取加密消息
+                encrypt_elem = root.find('Encrypt')
+                if encrypt_elem is None:
+                    logger.error("XML中未找到Encrypt元素")
+                    return jsonify({'error': '无效的加密消息格式'}), 400
+                
+                encrypted_msg = encrypt_elem.text
+                logger.info(f"获取到加密消息: {encrypted_msg}")
+                
+                # 获取URL参数
+                msg_signature = request.args.get('msg_signature', '')
+                timestamp = request.args.get('timestamp', '')
+                nonce = request.args.get('nonce', '')
+                
+                logger.info(f"解密参数: msg_signature={msg_signature}, timestamp={timestamp}, nonce={nonce}")
+                
+                # 解密消息
+                config = load_config()
+                decrypted_xml = decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, config.token, config.encoding_aes_key, config.corp_id)
+                
+                if decrypted_xml:
+                    logger.info(f"解密成功，原始XML: {decrypted_xml}")
+                    
+                    # 解析解密后的XML
+                    decrypted_root = ET.fromstring(decrypted_xml)
+                    
+                    # 提取消息内容
+                    data = {}
+                    for child in decrypted_root:
+                        data[child.tag] = child.text
+                    
+                    logger.info(f"解析后的消息数据: {data}")
+                else:
+                    logger.error("消息解密失败")
+                    return jsonify({'error': '消息解密失败'}), 400
+                    
+            except Exception as e:
+                logger.error(f"XML解析或解密异常: {e}")
+                return jsonify({'error': f'XML处理异常: {str(e)}'}), 400
+        else:
+            # 尝试解析JSON（非加密消息）
+            try:
+                data = request.get_json()
+                logger.info(f"解析的JSON数据: {data}")
+            except Exception as e:
+                logger.error(f"JSON解析失败: {e}")
+                return jsonify({'error': '无效的JSON数据'}), 400
         
         if not data:
-            logger.error("JSON数据为空")
-            return jsonify({'error': '无效的JSON数据'}), 400
+            logger.error("消息数据为空")
+            return jsonify({'error': '无效的消息数据'}), 400
         
         # 解析消息
         msg_type = data.get('MsgType', '')
