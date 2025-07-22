@@ -135,8 +135,6 @@ def decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, token, encod
             logger.error(f"签名验证失败: 期望={msg_signature}, 实际={signature}")
             return None
         
-        logger.info("签名验证成功，开始解密消息...")
-        
         # 解密消息
         aes_key = base64.b64decode(encoding_aes_key + "=")
         encrypted_data = base64.b64decode(encrypted_msg)
@@ -169,7 +167,6 @@ def decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, token, encod
             xml_end = decrypted_data.find(b'</xml>', xml_start)
             if xml_end != -1:
                 xml_content = decrypted_data[xml_start:xml_end+6].decode('utf-8')
-                logger.info(f"解密成功，XML长度: {len(xml_content)}")
                 return xml_content
         
         # 如果找不到XML标签，尝试使用消息长度解析
@@ -177,7 +174,6 @@ def decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, token, encod
             msg_len = struct.unpack("!I", decrypted_data[16:20])[0]
             if msg_len <= len(decrypted_data) - 20:
                 xml_content = decrypted_data[20:20+msg_len].decode('utf-8')
-                logger.info(f"解密成功，XML长度: {msg_len}")
                 return xml_content
         
         logger.error("无法提取XML内容")
@@ -197,12 +193,10 @@ def generate_signature(token, timestamp, nonce, encrypted_msg):
         
         # 拼接字符串
         string_to_sign = ''.join(params)
-        logger.info(f"待签名字符串: {string_to_sign}")
         
         # SHA1哈希
         import hashlib
         signature = hashlib.sha1(string_to_sign.encode('utf-8')).hexdigest()
-        logger.info(f"生成的签名: {signature}")
         
         return signature
         
@@ -665,16 +659,11 @@ def handle_message(request):
         # 诊断：记录原始请求数据
         logger.info("=== 消息接收诊断 ===")
         logger.info(f"请求方法: {request.method}")
-        logger.info(f"请求头: {dict(request.headers)}")
-        logger.info(f"请求体长度: {len(request.get_data())}")
-        
         # 获取原始数据
         raw_data = request.get_data(as_text=True)
-        logger.info(f"原始请求数据: {raw_data}")
         
         # 检查是否是加密消息（XML格式）
         if raw_data.strip().startswith('<xml>'):
-            logger.info("检测到XML格式的加密消息，开始解密...")
             
             # 解析XML获取加密数据
             try:
@@ -688,22 +677,17 @@ def handle_message(request):
                     return jsonify({'error': '无效的加密消息格式'}), 400
                 
                 encrypted_msg = encrypt_elem.text
-                logger.info(f"获取到加密消息: {encrypted_msg}")
                 
                 # 获取URL参数
                 msg_signature = request.args.get('msg_signature', '')
                 timestamp = request.args.get('timestamp', '')
                 nonce = request.args.get('nonce', '')
                 
-                logger.info(f"解密参数: msg_signature={msg_signature}, timestamp={timestamp}, nonce={nonce}")
-                
                 # 解密消息
                 config = load_config()
                 decrypted_xml = decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, config.token, config.encoding_aes_key, config.corpid)
                 
                 if decrypted_xml:
-                    logger.info(f"解密成功，原始内容: {decrypted_xml}")
-                    
                     # 直接解析解密后的XML内容
                     try:
                         # 检查XML是否完整，如果不完整则补充
@@ -714,15 +698,11 @@ def handle_message(request):
                                 xml_start = decrypted_xml.find('<ToUserName>')
                                 if xml_start != -1:
                                     decrypted_xml = '<xml>' + decrypted_xml[xml_start:]
-                                    logger.info("补充XML头部标签")
                         
                         # 移除末尾的企业ID和填充
                         xml_end = decrypted_xml.find('</xml>')
                         if xml_end != -1:
                             decrypted_xml = decrypted_xml[:xml_end + 6]
-                            logger.info("移除末尾多余内容")
-                        
-                        logger.info(f"处理后的XML: {decrypted_xml}")
                         
                         # 解析XML
                         decrypted_root = ET.fromstring(decrypted_xml)
@@ -731,8 +711,6 @@ def handle_message(request):
                         data = {}
                         for child in decrypted_root:
                             data[child.tag] = child.text
-                        
-                        logger.info(f"解析后的消息数据: {data}")
                         
                     except Exception as e:
                         logger.error(f"解析解密内容异常: {e}")
@@ -748,7 +726,6 @@ def handle_message(request):
             # 尝试解析JSON（非加密消息）
             try:
                 data = request.get_json()
-                logger.info(f"解析的JSON数据: {data}")
             except Exception as e:
                 logger.error(f"JSON解析失败: {e}")
                 return jsonify({'error': '无效的JSON数据'}), 400
@@ -759,8 +736,6 @@ def handle_message(request):
         
         # 解析消息
         msg_type = data.get('MsgType', '')
-        logger.info(f"消息类型: {msg_type}")
-        logger.info("=== 消息接收诊断结束 ===")
         
         if msg_type == 'text':
             content = data.get('Content', '')
@@ -772,16 +747,16 @@ def handle_message(request):
             response = bot.handle_incoming_message(content, user_id)
             
             if response:
-                # 返回XML格式的回复
-                xml_response = f"""<xml>
-<ToUserName><![CDATA[{user_id}]]></ToUserName>
-<FromUserName><![CDATA[{data.get('ToUserName', '')}]]></FromUserName>
-<CreateTime>{int(time.time())}</CreateTime>
-<MsgType><![CDATA[text]]></MsgType>
-<Content><![CDATA[{response}]]></Content>
-</xml>"""
-                logger.info(f"返回XML回复: {xml_response}")
-                return xml_response, 200, {'Content-Type': 'application/xml'}
+                logger.info(f"生成回复: {response}")
+                # 使用与定时发送相同的方式发送回复
+                success = bot.send_message(response, [user_id])
+                if success:
+                    logger.info(f"回复消息发送成功: {response}")
+                else:
+                    logger.error(f"回复消息发送失败: {response}")
+                
+                # 返回成功响应
+                return jsonify({'errcode': 0, 'errmsg': 'ok'})
             else:
                 # 如果没有回复，返回空字符串
                 return '', 200
