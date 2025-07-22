@@ -676,6 +676,86 @@ def handle_message(request):
                 timestamp = request.args.get('timestamp', '')
                 nonce = request.args.get('nonce', '')
                 
+                logger.info("=== 本地测试用的完整数据 ===")
+                logger.info(f"encrypted_msg = '{encrypted_msg}'")
+                logger.info(f"msg_signature = '{msg_signature}'")
+                logger.info(f"timestamp = '{timestamp}'")
+                logger.info(f"nonce = '{nonce}'")
+                logger.info(f"token = '{load_config().token}'")
+                logger.info(f"encoding_aes_key = '{load_config().encoding_aes_key}'")
+                logger.info(f"corpid = '{load_config().corpid}'")
+                logger.info("=== 本地测试数据结束 ===")
+                
+                # 本地测试函数（复制到本地使用）
+                logger.info("=== 本地测试函数 ===")
+                logger.info("""
+# 复制以下代码到本地测试：
+
+import base64
+import pyaes
+
+def test_decrypt():
+    # 从上面的日志中复制这些值
+    encrypted_msg = "这里填入encrypted_msg的值"
+    msg_signature = "这里填入msg_signature的值"
+    timestamp = "这里填入timestamp的值"
+    nonce = "这里填入nonce的值"
+    token = "这里填入token的值"
+    encoding_aes_key = "这里填入encoding_aes_key的值"
+    corpid = "这里填入corpid的值"
+    
+    # 验证签名
+    params = [token, timestamp, nonce, encrypted_msg]
+    params.sort()
+    string_to_sign = ''.join(params)
+    import hashlib
+    signature = hashlib.sha1(string_to_sign.encode('utf-8')).hexdigest()
+    print(f"签名验证: {'成功' if signature == msg_signature else '失败'}")
+    print(f"期望签名: {msg_signature}")
+    print(f"实际签名: {signature}")
+    
+    # 解密
+    encrypted_data = base64.b64decode(encrypted_msg)
+    aes_key = base64.b64decode(encoding_aes_key + "=")
+    iv = aes_key[:16]
+    
+    ciphertext = encrypted_data[16:]
+    
+    aes = pyaes.AESModeOfOperationCBC(aes_key, iv=iv)
+    decrypted = b''
+    for i in range(0, len(ciphertext), 16):
+        block = ciphertext[i:i+16]
+        if len(block) == 16:
+            decrypted += aes.decrypt(block)
+    
+    # PKCS7去填充
+    pad_len = decrypted[-1]
+    if pad_len <= 16 and pad_len > 0:
+        padding_bytes = decrypted[-pad_len:]
+        if all(b == pad_len for b in padding_bytes):
+            decrypted = decrypted[:-pad_len]
+            print(f"移除PKCS7填充: {pad_len}字节")
+    
+    # 解析消息格式
+    xml_len = int.from_bytes(decrypted[16:20], byteorder='big')
+    xml_content = decrypted[20:20+xml_len]
+    received_corpid = decrypted[20+xml_len:].decode('utf-8')
+    
+    print(f"XML长度: {xml_len}")
+    print(f"XML内容: {xml_content.decode('utf-8')}")
+    print(f"企业ID: {received_corpid}")
+    print(f"企业ID验证: {'成功' if received_corpid == corpid else '失败'}")
+
+# 运行测试
+test_decrypt()
+""")
+                logger.info("=== 本地测试函数结束 ===")
+                
+                # 获取URL参数
+                msg_signature = request.args.get('msg_signature', '')
+                timestamp = request.args.get('timestamp', '')
+                nonce = request.args.get('nonce', '')
+                
                 logger.info(f"解密参数: msg_signature={msg_signature}, timestamp={timestamp}, nonce={nonce}")
                 
                 # 解密消息
