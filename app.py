@@ -62,82 +62,77 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         encrypted_data = base64.b64decode(echostr)
         logger.info(f"Base64解码成功，数据长度: {len(encrypted_data)}")
         
-        # 获取AES密钥 - 确保是32字节
+        # 获取AES密钥
         aes_key = base64.b64decode(encoding_aes_key + "=")
-        if len(aes_key) != 32:
-            # 如果密钥长度不是32字节，截取前32字节
-            aes_key = aes_key[:32]
-            logger.warning(f"AES密钥长度调整为32字节: {len(aes_key)}")
+        logger.info(f"AES密钥长度: {len(aes_key)}")
         
-        # 企业微信echostr格式：
-        # 整个数据先用AES解密，解密后的格式为：
-        # random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
-        
-        # 提取随机数（前16字节）作为IV
-        random_16bytes = encrypted_data[:16]
-        logger.info(f"随机数: {random_16bytes.hex()}")
+        # 使用密钥前16字节作为IV
+        iv = aes_key[:16]
+        logger.info(f"IV: {iv.hex()}")
         
         # 提取加密数据（从第16字节开始）
-        encrypted_msg = encrypted_data[16:]
-        logger.info(f"加密数据长度: {len(encrypted_msg)}")
+        ciphertext = encrypted_data[16:]
+        logger.info(f"加密数据长度: {len(ciphertext)}")
         
-        # 使用pyaes进行AES CBC解密
-        logger.info("使用pyaes AES解密...")
-        aes = pyaes.AESModeOfOperationCBC(aes_key, iv=random_16bytes)
-        decrypted_data = b''
+        # AES解密
+        def aes_decrypt(ciphertext, key, iv):
+            aes = pyaes.AESModeOfOperationCBC(key, iv=iv)
+            decrypted = b''
+            for i in range(0, len(ciphertext), 16):
+                block = ciphertext[i:i+16]
+                if len(block) == 16:
+                    decrypted += aes.decrypt(block)
+            return decrypted
         
-        # 分块解密
-        for i in range(0, len(encrypted_msg), 16):
-            block = encrypted_msg[i:i+16]
-            if len(block) == 16:
-                decrypted_block = aes.decrypt(block)
-                decrypted_data += decrypted_block
-            else:
-                # 最后一个块可能不足16字节，需要特殊处理
-                break
+        # PKCS7去填充
+        def pkcs7_unpad(data):
+            pad_len = data[-1]
+            if pad_len <= 16 and pad_len > 0:
+                # 验证填充
+                padding_bytes = data[-pad_len:]
+                if all(b == pad_len for b in padding_bytes):
+                    return data[:-pad_len]
+            return data
         
-        logger.info(f"AES解密成功，数据长度: {len(decrypted_data)}")
+        # 执行解密
+        decrypted = aes_decrypt(ciphertext, aes_key, iv)
+        logger.info(f"AES解密成功，数据长度: {len(decrypted)}")
         
-        # 解析解密后的数据
-        # 格式：random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
+        # 去填充
+        unpadded = pkcs7_unpad(decrypted)
+        logger.info(f"去填充后数据长度: {len(unpadded)}")
         
-        # 提取消息长度（前4字节）
-        msg_len_bytes = decrypted_data[:4]
-        msg_len = struct.unpack("!I", msg_len_bytes)[0]
-        logger.info(f"消息长度: {msg_len}")
-        
-        # 检查消息长度是否合理
-        if msg_len > 1000 or msg_len < 0:
-            logger.error(f"消息长度不合理: {msg_len}")
+        # 解析消息格式：random(16字节) + msg_len(4字节) + msg + $CorpID
+        if len(unpadded) < 20:
+            logger.error("解密数据长度不足")
             return echostr
         
-        # 提取消息内容（从第4字节开始，取msg_len字节）
-        msg_content = decrypted_data[4:4+msg_len]
-        logger.info(f"消息内容长度: {len(msg_content)}")
+        # 提取XML长度（第16-20字节，网络字节序）
+        xml_len = int.from_bytes(unpadded[16:20], byteorder='big')
+        logger.info(f"XML内容长度: {xml_len}")
         
-        # 验证企业ID（msg_len字节之后的内容）
-        received_corpid_bytes = decrypted_data[4+msg_len:]
+        # 检查长度合理性
+        if xml_len > 1000 or xml_len < 0:
+            logger.error(f"XML长度不合理: {xml_len}")
+            return echostr
         
-        # 处理PKCS7填充 - 查找最后一个字节作为填充长度
-        if received_corpid_bytes:
-            padding_length = received_corpid_bytes[-1]
-            if padding_length <= 16 and padding_length > 0:
-                # 检查是否所有填充字节都正确
-                padding_bytes = received_corpid_bytes[-padding_length:]
-                if all(b == padding_length for b in padding_bytes):
-                    # 移除填充
-                    received_corpid_bytes = received_corpid_bytes[:-padding_length]
-                    logger.info(f"移除PKCS7填充: {padding_length}字节")
+        # 提取XML内容
+        xml_content = unpadded[20:20+xml_len]
+        logger.info(f"XML内容长度: {len(xml_content)}")
         
+        # 验证企业ID
+        received_corpid_bytes = unpadded[20+xml_len:]
         received_corpid = received_corpid_bytes.decode('utf-8')
+        logger.info(f"接收到的企业ID: '{received_corpid}'")
+        logger.info(f"期望的企业ID: '{corpid}'")
         
         # 比较企业ID
         if received_corpid != corpid:
             logger.error(f"企业ID不匹配: 期望='{corpid}', 实际='{received_corpid}'")
             return echostr
         
-        # 返回解密后的消息
-        result = msg_content.decode('utf-8')
+        # 返回XML内容
+        result = xml_content.decode("utf-8")
         logger.info(f"解密成功: {result}")
         return result
             
