@@ -132,9 +132,22 @@ def timer_loop():
 
 
 # Flask路由
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    """主页"""
+    """主页 - 同时处理企业微信回调"""
+    if request.method == 'GET':
+        # 检查是否是企业微信验证请求
+        msg_signature = request.args.get('msg_signature', '')
+        timestamp = request.args.get('timestamp', '')
+        nonce = request.args.get('nonce', '')
+        echostr = request.args.get('echostr', '')
+        
+        # 如果包含企业微信验证参数，则进行验证
+        if all([msg_signature, timestamp, nonce, echostr]):
+            logger.info("根路径收到企业微信验证请求，转发到verify_url")
+            return verify_url(request)
+    
+    # 否则显示主页
     html = """
     <!DOCTYPE html>
     <html>
@@ -188,7 +201,7 @@ def index():
             <div class="status info">
                 <h3>📡 API接口</h3>
                 <ul>
-                    <li><strong>GET /</strong> - 主页</li>
+                    <li><strong>GET /</strong> - 主页（同时处理企业微信验证）</li>
                     <li><strong>GET /status</strong> - 获取机器人状态</li>
                     <li><strong>POST /send</strong> - 发送消息</li>
                     <li><strong>POST /webhook</strong> - 企业微信回调</li>
