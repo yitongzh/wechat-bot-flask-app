@@ -16,9 +16,8 @@ from datetime import datetime
 from typing import Optional
 
 from flask import Flask, request, jsonify, render_template_string
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent
@@ -467,13 +466,9 @@ def decrypt_echostr(echostr, encoding_aes_key, corpid):
         msg_len = struct.unpack("!I", encrypted_data[-4:])[0]
         
         # 解密
-        cipher = Cipher(algorithms.AES(aes_key), modes.CBC(random_16bytes), backend=default_backend())
-        decryptor = cipher.decryptor()
-        decrypted_data = decryptor.update(encrypted_msg) + decryptor.finalize()
-        
-        # 去除填充
-        unpadder = padding.PKCS7(128).unpadder()
-        unpadded_data = unpadder.update(decrypted_data) + unpadder.finalize()
+        cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
+        decrypted_data = cipher.decrypt(encrypted_msg)
+        unpadded_data = unpad(decrypted_data, 128)
         
         # 提取消息内容（去掉前4字节的随机数）
         content = unpadded_data[16:msg_len+16]
