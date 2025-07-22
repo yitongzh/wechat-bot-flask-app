@@ -116,12 +116,24 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         logger.info(f"消息内容长度: {len(msg_content)}")
         
         # 验证企业ID（msg_len字节之后的内容）
-        received_corpid = decrypted_data[4+msg_len:].decode('utf-8')
-        logger.info(f"接收到的企业ID: {received_corpid}")
-        logger.info(f"期望的企业ID: {corpid}")
+        received_corpid_bytes = decrypted_data[4+msg_len:]
+        received_corpid = received_corpid_bytes.decode('utf-8')
+        logger.info(f"接收到的企业ID字节: {received_corpid_bytes}")
+        logger.info(f"接收到的企业ID: '{received_corpid}'")
+        logger.info(f"期望的企业ID: '{corpid}'")
+        logger.info(f"接收到的企业ID长度: {len(received_corpid)}")
+        logger.info(f"期望的企业ID长度: {len(corpid)}")
+        logger.info(f"字符串比较结果: {received_corpid == corpid}")
         
-        if received_corpid != corpid:
-            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
+        # 去除可能的空白字符后比较
+        received_corpid_clean = received_corpid.strip()
+        corpid_clean = corpid.strip()
+        logger.info(f"清理后的接收企业ID: '{received_corpid_clean}'")
+        logger.info(f"清理后的期望企业ID: '{corpid_clean}'")
+        logger.info(f"清理后比较结果: {received_corpid_clean == corpid_clean}")
+        
+        if received_corpid_clean != corpid_clean:
+            logger.error(f"企业ID不匹配: 期望='{corpid_clean}', 实际='{received_corpid_clean}'")
             return echostr
         
         # 返回解密后的消息
