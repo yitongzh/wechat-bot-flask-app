@@ -149,17 +149,26 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         aes_key = base64.b64decode(encoding_aes_key + "=")
         logger.info(f"AES密钥长度: {len(aes_key)}")
         
+        # 企业微信echostr格式：
+        # 16字节随机数 + 4字节消息长度 + 消息内容 + 企业ID + PKCS7填充
+        
         # 提取随机数（前16字节）
         random_16bytes = encrypted_data[:16]
         logger.info(f"随机数: {random_16bytes.hex()}")
         
-        # 提取加密数据
-        encrypted_msg = encrypted_data[16:-4]
-        logger.info(f"加密数据长度: {len(encrypted_msg)}")
-        
-        # 提取消息长度
-        msg_len = struct.unpack("!I", encrypted_data[-4:])[0]
+        # 提取消息长度（接下来4字节）
+        msg_len_bytes = encrypted_data[16:20]
+        msg_len = struct.unpack("!I", msg_len_bytes)[0]
         logger.info(f"消息长度: {msg_len}")
+        
+        # 检查消息长度是否合理
+        if msg_len > 1000 or msg_len < 0:
+            logger.error(f"消息长度不合理: {msg_len}")
+            return echostr
+        
+        # 提取加密数据（从第20字节开始到倒数）
+        encrypted_msg = encrypted_data[20:]
+        logger.info(f"加密数据长度: {len(encrypted_msg)}")
         
         # 简单的XOR解密（仅用于测试）
         # 注意：这不是真正的AES解密，只是为了让应用能运行
@@ -169,7 +178,7 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         
         logger.info(f"XOR解密完成，数据长度: {len(decrypted_data)}")
         
-        # 尝试提取内容
+        # 尝试提取内容（前msg_len字节）
         try:
             content = decrypted_data[:msg_len].decode('utf-8')
             logger.info(f"解密成功: {content}")
