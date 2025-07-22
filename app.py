@@ -16,8 +16,9 @@ from datetime import datetime
 from typing import Optional
 
 from flask import Flask, request, jsonify, render_template_string
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.backends import default_backend
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent
@@ -134,6 +135,48 @@ def timer_loop():
         except Exception as e:
             logger.error(f"定时发送异常: {e}")
             time.sleep(60)
+
+
+def decrypt_echostr(echostr, encoding_aes_key, corpid):
+    """解密企业微信的echostr"""
+    try:
+        # Base64解码
+        encrypted_data = base64.b64decode(echostr)
+        
+        # 获取EncodingAESKey
+        aes_key = base64.b64decode(encoding_aes_key + "=")
+        
+        # 提取随机数（前16字节）
+        random_16bytes = encrypted_data[:16]
+        # 提取加密数据
+        encrypted_msg = encrypted_data[16:-4]
+        # 提取企业ID（后4字节）
+        msg_len = struct.unpack("!I", encrypted_data[-4:])[0]
+        
+        # 解密
+        cipher = Cipher(algorithms.AES(aes_key), modes.CBC(random_16bytes), backend=default_backend())
+        decryptor = cipher.decryptor()
+        decrypted_data = decryptor.update(encrypted_msg) + decryptor.finalize()
+        
+        # 去除填充
+        unpadder = padding.PKCS7(128).unpadder()
+        unpadded_data = unpadder.update(decrypted_data) + unpadder.finalize()
+        
+        # 提取消息内容（去掉前4字节的随机数）
+        content = unpadded_data[16:msg_len+16]
+        
+        # 验证企业ID
+        received_corpid = content[msg_len:].decode('utf-8')
+        if received_corpid != corpid:
+            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
+            return None
+        
+        # 返回解密后的消息
+        return content[:msg_len].decode('utf-8')
+        
+    except Exception as e:
+        logger.error(f"解密echostr失败: {e}")
+        return None
 
 
 # Flask路由
@@ -447,44 +490,6 @@ def health():
         'bot_initialized': bot is not None,
         'timer_running': running
     })
-
-
-def decrypt_echostr(echostr, encoding_aes_key, corpid):
-    """解密企业微信的echostr"""
-    try:
-        # Base64解码
-        encrypted_data = base64.b64decode(echostr)
-        
-        # 获取EncodingAESKey
-        aes_key = base64.b64decode(encoding_aes_key + "=")
-        
-        # 提取随机数（前16字节）
-        random_16bytes = encrypted_data[:16]
-        # 提取加密数据
-        encrypted_msg = encrypted_data[16:-4]
-        # 提取企业ID（后4字节）
-        msg_len = struct.unpack("!I", encrypted_data[-4:])[0]
-        
-        # 解密
-        cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
-        decrypted_data = cipher.decrypt(encrypted_msg)
-        unpadded_data = unpad(decrypted_data, 128)
-        
-        # 提取消息内容（去掉前4字节的随机数）
-        content = unpadded_data[16:msg_len+16]
-        
-        # 验证企业ID
-        received_corpid = content[msg_len:].decode('utf-8')
-        if received_corpid != corpid:
-            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
-            return None
-        
-        # 返回解密后的消息
-        return content[:msg_len].decode('utf-8')
-        
-    except Exception as e:
-        logger.error(f"解密echostr失败: {e}")
-        return None
 
 
 if __name__ == '__main__':
