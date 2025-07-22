@@ -157,9 +157,8 @@ timer_thread = None
 running = False
 
 # 应用启动时初始化机器人
-@app.before_first_request
 def initialize_bot():
-    """在第一个请求前初始化机器人"""
+    """初始化机器人"""
     global bot
     if bot is None:
         logger.info("初始化微信机器人...")
@@ -169,6 +168,17 @@ def initialize_bot():
             logger.info("机器人初始化成功，定时发送已启动")
         else:
             logger.error("机器人初始化失败")
+
+# 在第一个请求时初始化
+_initialized = False
+
+@app.before_request
+def before_request():
+    """在每个请求前检查是否需要初始化"""
+    global _initialized
+    if not _initialized:
+        initialize_bot()
+        _initialized = True
 
 
 def load_config() -> WeChatConfig:
