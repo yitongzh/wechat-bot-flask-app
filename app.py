@@ -28,14 +28,76 @@ from src.wx_stockbot.client import WeChatClient
 
 # 尝试导入AES解密
 try:
-    from wechatpy.crypto import WeChatCrypto
-    from wechatpy.utils import check_signature
+    # 纯Python AES实现
+    from aes_utils import decrypt_wechat_echostr
+    import base64
+    import struct
+    import hashlib
+    import hmac
     WECHAT_CRYPTO_AVAILABLE = True
-    logger.info("wechatpy模块导入成功")
+    logger.info("纯Python AES模块可用")
 except ImportError as e:
     WECHAT_CRYPTO_AVAILABLE = False
-    logger.error(f"wechatpy模块导入失败: {e}")
-    logger.error("请确保wechatpy已正确安装")
+    logger.error(f"纯Python AES模块导入失败: {e}")
+    logger.error("请确保基础模块可用")
+
+def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
+    """使用纯Python解密企业微信的echostr"""
+    try:
+        logger.info("开始解密...")
+        
+        # 检查模块是否可用
+        if not WECHAT_CRYPTO_AVAILABLE:
+            logger.error("纯Python AES模块不可用")
+            return echostr
+        
+        # 使用纯Python AES解密
+        logger.info("使用纯Python AES解密...")
+        decrypted_data = decrypt_wechat_echostr(echostr, encoding_aes_key)
+        
+        if decrypted_data is None:
+            logger.error("AES解密失败")
+            return echostr
+        
+        logger.info(f"AES解密成功，数据长度: {len(decrypted_data)}")
+        
+        # 解析解密后的数据
+        # 格式：random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
+        
+        # 提取消息长度（前4字节）
+        msg_len_bytes = decrypted_data[:4]
+        msg_len = struct.unpack("!I", msg_len_bytes)[0]
+        logger.info(f"消息长度: {msg_len}")
+        
+        # 检查消息长度是否合理
+        if msg_len > 1000 or msg_len < 0:
+            logger.error(f"消息长度不合理: {msg_len}")
+            return echostr
+        
+        # 提取消息内容（从第4字节开始，取msg_len字节）
+        msg_content = decrypted_data[4:4+msg_len]
+        logger.info(f"消息内容长度: {len(msg_content)}")
+        
+        # 验证企业ID（msg_len字节之后的内容）
+        received_corpid = decrypted_data[4+msg_len:].decode('utf-8')
+        logger.info(f"接收到的企业ID: {received_corpid}")
+        logger.info(f"期望的企业ID: {corpid}")
+        
+        if received_corpid != corpid:
+            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
+            return echostr
+        
+        # 返回解密后的消息
+        result = msg_content.decode('utf-8')
+        logger.info(f"解密成功: {result}")
+        return result
+            
+    except Exception as e:
+        logger.error(f"解密异常: {e}")
+        import traceback
+        logger.error(f"详细错误: {traceback.format_exc()}")
+        return echostr
+
 
 # 配置日志
 logging.basicConfig(
@@ -143,33 +205,6 @@ def timer_loop():
         except Exception as e:
             logger.error(f"定时发送异常: {e}")
             time.sleep(60)
-
-
-def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
-    """使用wechatpy解密企业微信的echostr"""
-    try:
-        logger.info("开始解密...")
-        
-        # 检查wechatpy模块是否可用
-        if not WECHAT_CRYPTO_AVAILABLE:
-            logger.error("wechatpy模块不可用，无法进行企业微信解密")
-            logger.error("请确保wechatpy已正确安装")
-            return echostr
-        
-        # 使用wechatpy的WeChatCrypto进行解密
-        logger.info("使用wechatpy解密...")
-        crypto = WeChatCrypto(None, encoding_aes_key, corpid)
-        
-        # 解密echostr
-        decrypted_echostr = crypto.decrypt_echostr(echostr)
-        logger.info(f"解密成功: {decrypted_echostr}")
-        return decrypted_echostr
-            
-    except Exception as e:
-        logger.error(f"解密异常: {e}")
-        import traceback
-        logger.error(f"详细错误: {traceback.format_exc()}")
-        return echostr
 
 
 # Flask路由
@@ -430,7 +465,7 @@ def verify_url(request):
             logger.info(f"  encoding_aes_key: {config.encoding_aes_key[:10]}...")
             logger.info(f"  corpid: {config.corpid}")
             
-            # 使用wechatpy解密
+            # 使用纯Python解密
             decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
             if decrypted_echostr and decrypted_echostr != echostr:
                 logger.info(f"解密成功，返回: {decrypted_echostr}")
