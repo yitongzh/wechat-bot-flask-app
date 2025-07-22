@@ -1,0 +1,32 @@
+# 企业微信配置示例
+# 请将以下配置替换为您的真实企业微信应用信息
+
+# 企业ID (必填)
+# 在企业微信管理后台 -> 我的企业 -> 企业信息 中获取
+export WECHAT_CORPID="ww1234567890abcdef"
+
+# 应用Secret (必填)
+# 在企业微信管理后台 -> 应用管理 -> 自建应用 -> 您的应用 -> 设置API接收
+export WECHAT_CORPSECRET="abcdef1234567890abcdef1234567890"
+
+# 应用AgentId (必填)
+# 在企业微信管理后台 -> 应用管理 -> 自建应用 -> 您的应用 -> 设置API接收
+export WECHAT_AGENTID="1000001"
+
+# 用户ID列表 (可选，默认发送给所有人)
+# 多个用户ID用逗号分隔，使用@all表示发送给所有人
+export WECHAT_USER_IDS="@all"
+# 或者指定特定用户
+# export WECHAT_USER_IDS="zhangsan,lisi,wangwu"
+
+# 部门ID列表 (可选)
+# export WECHAT_DEPT_IDS="1,2,3"
+
+# 标签ID列表 (可选)
+# export WECHAT_TAG_IDS="1,2,3"
+
+# 使用说明：
+# 1. 复制此文件为 .env
+# 2. 替换为您的真实配置
+# 3. 运行: source .env
+# 4. 然后运行: python src/wx_stockbot/main.py 

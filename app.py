@@ -1,0 +1,410 @@
+"""
+Flask应用 - 微信机器人
+部署到Render的Flask应用，集成微信机器人功能
+"""
+
+import os
+import sys
+import time
+import threading
+import logging
+from pathlib import Path
+from datetime import datetime
+from typing import Optional
+
+from flask import Flask, request, jsonify, render_template_string
+
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# 导入wxbot模块
+from src.wx_stockbot.config import WeChatConfig, DEFAULT_CONFIG
+from src.wx_stockbot.bot import WeChatBot
+from src.wx_stockbot.client import WeChatClient
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 创建Flask应用
+app = Flask(__name__)
+
+# 全局变量
+bot = None
+timer_thread = None
+running = False
+
+
+def load_config() -> WeChatConfig:
+    """加载配置"""
+    # 尝试从环境变量加载
+    config = WeChatConfig.from_env()
+    
+    if config.validate():
+        logger.info("从环境变量加载配置成功")
+        return config
+    
+    # 使用默认配置
+    logger.warning("环境变量配置不完整，使用默认配置")
+    logger.info("请设置以下环境变量:")
+    logger.info("WECHAT_CORPID - 企业ID")
+    logger.info("WECHAT_CORPSECRET - 应用Secret")
+    logger.info("WECHAT_AGENTID - 应用AgentId")
+    logger.info("WECHAT_USER_IDS - 用户ID列表（逗号分隔）")
+    
+    return DEFAULT_CONFIG
+
+
+def init_bot():
+    """初始化机器人"""
+    global bot
+    
+    # 加载配置
+    config = load_config()
+    
+    if not config.validate():
+        logger.error("配置验证失败，请检查配置")
+        return False
+    
+    # 创建机器人
+    bot = WeChatBot(config)
+    
+    # 测试连接
+    logger.info("测试企业微信连接...")
+    test_success = bot.send_message("机器人启动测试")
+    if test_success:
+        logger.info("连接测试成功")
+        return True
+    else:
+        logger.error("连接测试失败，请检查配置")
+        return False
+
+
+def start_timer():
+    """启动定时发送功能"""
+    global timer_thread, running
+    
+    if running:
+        logger.warning("定时发送已在运行中")
+        return
+    
+    running = True
+    timer_thread = threading.Thread(target=timer_loop, daemon=True)
+    timer_thread.start()
+    logger.info("启动定时发送功能（每分钟发送'1'）")
+
+
+def stop_timer():
+    """停止定时发送功能"""
+    global running
+    running = False
+    if timer_thread:
+        timer_thread.join(timeout=5)
+    logger.info("停止定时发送")
+
+
+def timer_loop():
+    """定时发送循环"""
+    global running, bot
+    
+    while running:
+        try:
+            if bot:
+                # 发送定时消息
+                success = bot.send_message("1")
+                if success:
+                    logger.info(f"定时消息发送成功: {datetime.now()}")
+                else:
+                    logger.error("定时消息发送失败")
+            else:
+                logger.warning("机器人未初始化，跳过定时发送")
+            
+            # 等待下次发送
+            time.sleep(60)  # 60秒 = 1分钟
+            
+        except Exception as e:
+            logger.error(f"定时发送异常: {e}")
+            time.sleep(60)
+
+
+# Flask路由
+@app.route('/')
+def index():
+    """主页"""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>微信机器人 - Flask应用</title>
+        <meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            .container { max-width: 800px; margin: 0 auto; }
+            .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+            .success { background-color: #d4edda; color: #155724; }
+            .error { background-color: #f8d7da; color: #721c24; }
+            .warning { background-color: #fff3cd; color: #856404; }
+            .info { background-color: #d1ecf1; color: #0c5460; }
+            button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+            .btn-primary { background-color: #007bff; color: white; }
+            .btn-success { background-color: #28a745; color: white; }
+            .btn-danger { background-color: #dc3545; color: white; }
+            .btn-warning { background-color: #ffc107; color: black; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 微信机器人 Flask应用</h1>
+            
+            <div class="status info">
+                <h3>📊 应用状态</h3>
+                <p><strong>机器人状态:</strong> {{ "运行中" if bot_status.running else "未运行" }}</p>
+                <p><strong>配置状态:</strong> {{ "有效" if bot_status.config_valid else "无效" }}</p>
+                <p><strong>处理器数量:</strong> {{ bot_status.handlers_count }}</p>
+                <p><strong>最后更新:</strong> {{ bot_status.timestamp }}</p>
+            </div>
+            
+            <div class="status info">
+                <h3>🔧 功能说明</h3>
+                <ul>
+                    <li><strong>定时发送:</strong> 每分钟自动发送"1"</li>
+                    <li><strong>消息响应:</strong> 收到"信息更新"后发送"2"</li>
+                    <li><strong>Webhook:</strong> 接收企业微信回调消息</li>
+                </ul>
+            </div>
+            
+            <div class="status info">
+                <h3>🎮 控制面板</h3>
+                <button class="btn-primary" onclick="sendTestMessage()">发送测试消息</button>
+                <button class="btn-success" onclick="startTimer()">启动定时发送</button>
+                <button class="btn-danger" onclick="stopTimer()">停止定时发送</button>
+                <button class="btn-warning" onclick="refreshStatus()">刷新状态</button>
+            </div>
+            
+            <div class="status info">
+                <h3>📡 API接口</h3>
+                <ul>
+                    <li><strong>GET /</strong> - 主页</li>
+                    <li><strong>GET /status</strong> - 获取机器人状态</li>
+                    <li><strong>POST /send</strong> - 发送消息</li>
+                    <li><strong>POST /webhook</strong> - 企业微信回调</li>
+                </ul>
+            </div>
+        </div>
+        
+        <script>
+            function sendTestMessage() {
+                fetch('/send', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({content: '测试消息'})
+                })
+                .then(response => response.json())
+                .then(data => alert('发送结果: ' + JSON.stringify(data)));
+            }
+            
+            function startTimer() {
+                fetch('/timer/start', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => alert('启动结果: ' + JSON.stringify(data)));
+            }
+            
+            function stopTimer() {
+                fetch('/timer/stop', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => alert('停止结果: ' + JSON.stringify(data)));
+            }
+            
+            function refreshStatus() {
+                location.reload();
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    bot_status = bot.get_status() if bot else {
+        "running": False,
+        "config_valid": False,
+        "handlers_count": 0,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return render_template_string(html, bot_status=bot_status)
+
+
+@app.route('/status')
+def status():
+    """获取机器人状态"""
+    if bot:
+        return jsonify(bot.get_status())
+    else:
+        return jsonify({
+            "running": False,
+            "config_valid": False,
+            "handlers_count": 0,
+            "timestamp": datetime.now().isoformat(),
+            "error": "机器人未初始化"
+        })
+
+
+@app.route('/send', methods=['POST'])
+def send_message():
+    """发送消息"""
+    try:
+        data = request.get_json()
+        content = data.get('content', '')
+        user_ids = data.get('user_ids', None)
+        
+        if not content:
+            return jsonify({'error': '消息内容不能为空'}), 400
+        
+        if not bot:
+            return jsonify({'error': '机器人未初始化'}), 500
+        
+        success = bot.send_message(content, user_ids)
+        return jsonify({'success': success})
+        
+    except Exception as e:
+        logger.error(f"发送消息异常: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/timer/start', methods=['POST'])
+def start_timer_route():
+    """启动定时发送"""
+    try:
+        start_timer()
+        return jsonify({'success': True, 'message': '定时发送已启动'})
+    except Exception as e:
+        logger.error(f"启动定时发送异常: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/timer/stop', methods=['POST'])
+def stop_timer_route():
+    """停止定时发送"""
+    try:
+        stop_timer()
+        return jsonify({'success': True, 'message': '定时发送已停止'})
+    except Exception as e:
+        logger.error(f"停止定时发送异常: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/webhook', methods=['GET', 'POST'])
+def webhook():
+    """企业微信回调接口"""
+    if not bot:
+        return jsonify({'error': '机器人未初始化'}), 500
+    
+    if request.method == 'GET':
+        # 验证回调URL
+        return verify_url(request)
+    elif request.method == 'POST':
+        # 处理消息
+        return handle_message(request)
+
+
+def verify_url(request):
+    """验证回调URL"""
+    try:
+        msg_signature = request.args.get('msg_signature', '')
+        timestamp = request.args.get('timestamp', '')
+        nonce = request.args.get('nonce', '')
+        echostr = request.args.get('echostr', '')
+        
+        # 简单的验证（实际应该使用企业微信的加密验证）
+        if timestamp and nonce:
+            logger.info("URL验证成功")
+            return echostr
+        else:
+            logger.warning("URL验证失败")
+            return "验证失败"
+            
+    except Exception as e:
+        logger.error(f"URL验证异常: {e}")
+        return "验证异常"
+
+
+def handle_message(request):
+    """处理接收到的消息"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '无效的JSON数据'}), 400
+        
+        # 解析消息
+        msg_type = data.get('MsgType', '')
+        
+        if msg_type == 'text':
+            content = data.get('Content', '')
+            user_id = data.get('FromUserName', '')
+            
+            logger.info(f"收到文本消息: {content}, 来自: {user_id}")
+            
+            # 处理消息
+            response = bot.handle_incoming_message(content, user_id)
+            
+            if response:
+                return jsonify({
+                    'errcode': 0,
+                    'errmsg': 'ok',
+                    'response': response
+                })
+            else:
+                return jsonify({
+                    'errcode': 0,
+                    'errmsg': 'ok'
+                })
+        
+        elif msg_type == 'event':
+            event = data.get('Event', '')
+            user_id = data.get('FromUserName', '')
+            
+            logger.info(f"收到事件: {event}, 来自: {user_id}")
+            
+            # 处理事件
+            if event == 'subscribe':
+                # 用户关注
+                bot.send_message("欢迎使用量化交易机器人！", [user_id])
+            
+            return jsonify({'errcode': 0, 'errmsg': 'ok'})
+        
+        else:
+            logger.info(f"收到其他类型消息: {msg_type}")
+            return jsonify({'errcode': 0, 'errmsg': 'ok'})
+            
+    except Exception as e:
+        logger.error(f"处理消息异常: {e}")
+        return jsonify({'errcode': 1, 'errmsg': str(e)}), 500
+
+
+@app.route('/health')
+def health():
+    """健康检查接口"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'bot_initialized': bot is not None,
+        'timer_running': running
+    })
+
+
+if __name__ == '__main__':
+    # 初始化机器人
+    logger.info("初始化微信机器人...")
+    if init_bot():
+        # 启动定时发送
+        start_timer()
+        logger.info("机器人初始化成功，定时发送已启动")
+    else:
+        logger.error("机器人初始化失败")
+    
+    # 启动Flask应用
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False) 

@@ -1,0 +1,19 @@
+# Flask应用环境变量示例
+# 复制此文件为.env并在Render中设置这些环境变量
+
+# Flask配置
+FLASK_ENV=production
+FLASK_DEBUG=False
+
+# 企业微信配置
+WECHAT_CORPID=your_corp_id_here
+WECHAT_CORPSECRET=your_corp_secret_here
+WECHAT_AGENTID=your_agent_id_here
+WECHAT_USER_IDS=user1,user2,user3
+
+# 可选：企业微信回调配置
+WECHAT_TOKEN=your_token_here
+WECHAT_ENCODING_AES_KEY=your_encoding_aes_key_here
+
+# Render配置（自动设置）
+PORT=5000 
