@@ -688,17 +688,34 @@ def handle_message(request):
                 decrypted_xml = decrypt_message(encrypted_msg, msg_signature, timestamp, nonce, config.token, config.encoding_aes_key, config.corpid)
                 
                 if decrypted_xml:
-                    logger.info(f"解密成功，原始XML: {decrypted_xml}")
+                    logger.info(f"解密成功，原始内容: {decrypted_xml}")
                     
-                    # 解析解密后的XML
-                    decrypted_root = ET.fromstring(decrypted_xml)
-                    
-                    # 提取消息内容
-                    data = {}
-                    for child in decrypted_root:
-                        data[child.tag] = child.text
-                    
-                    logger.info(f"解析后的消息数据: {data}")
+                    # 检查解密后的内容是否是Base64编码
+                    try:
+                        # 尝试Base64解码
+                        decoded_content = base64.b64decode(decrypted_xml)
+                        logger.info(f"Base64解码后内容: {decoded_content}")
+                        
+                        # 尝试解析为XML
+                        try:
+                            decrypted_root = ET.fromstring(decoded_content.decode('utf-8'))
+                            logger.info("成功解析为XML格式")
+                        except ET.ParseError:
+                            # 如果不是XML，尝试直接解析原始内容
+                            logger.info("解密内容不是XML格式，尝试直接解析")
+                            decrypted_root = ET.fromstring(decrypted_xml)
+                            logger.info("成功解析原始内容为XML")
+                        
+                        # 提取消息内容
+                        data = {}
+                        for child in decrypted_root:
+                            data[child.tag] = child.text
+                        
+                        logger.info(f"解析后的消息数据: {data}")
+                        
+                    except Exception as e:
+                        logger.error(f"解析解密内容异常: {e}")
+                        return jsonify({'error': f'解析解密内容异常: {str(e)}'}), 400
                 else:
                     logger.error("消息解密失败")
                     return jsonify({'error': '消息解密失败'}), 400
