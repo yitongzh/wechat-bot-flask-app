@@ -570,16 +570,19 @@ def handle_message(request):
             response = bot.handle_incoming_message(content, user_id)
             
             if response:
-                return jsonify({
-                    'errcode': 0,
-                    'errmsg': 'ok',
-                    'response': response
-                })
+                # 返回XML格式的回复
+                xml_response = f"""<xml>
+<ToUserName><![CDATA[{user_id}]]></ToUserName>
+<FromUserName><![CDATA[{data.get('ToUserName', '')}]]></FromUserName>
+<CreateTime>{int(time.time())}</CreateTime>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[{response}]]></Content>
+</xml>"""
+                logger.info(f"返回XML回复: {xml_response}")
+                return xml_response, 200, {'Content-Type': 'application/xml'}
             else:
-                return jsonify({
-                    'errcode': 0,
-                    'errmsg': 'ok'
-                })
+                # 如果没有回复，返回空字符串
+                return '', 200
         
         elif msg_type == 'event':
             event = data.get('Event', '')

@@ -96,13 +96,13 @@ class WeChatBot:
                 try:
                     response = handler(message, user_id)
                     if response:
-                        # 发送回复
-                        self.send_message(response, [user_id])
+                        logger.info(f"生成回复: {response}")
                         return response
                 except Exception as e:
                     logger.error(f"处理消息异常: {e}")
                     return None
         
+        logger.info("没有匹配的消息处理器")
         return None
     
     def get_status(self) -> dict:
