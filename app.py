@@ -338,6 +338,11 @@ def index():
             logger.info("根路径收到企业微信验证请求，转发到verify_url")
             return verify_url(request)
     
+    elif request.method == 'POST':
+        # 处理企业微信POST消息
+        logger.info("根路径收到企业微信POST消息，转发到handle_message")
+        return handle_message(request)
+    
     # 否则显示主页
     html = """
     <!DOCTYPE html>
