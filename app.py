@@ -158,24 +158,15 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         logger.info(f"AES密钥长度: {len(aes_key)}")
         
         # 企业微信echostr格式：
+        # 整个数据先用AES解密，解密后的格式为：
         # random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
         
         # 提取随机数（前16字节）
         random_16bytes = encrypted_data[:16]
         logger.info(f"随机数: {random_16bytes.hex()}")
         
-        # 提取消息长度（接下来4字节）
-        msg_len_bytes = encrypted_data[16:20]
-        msg_len = struct.unpack("!I", msg_len_bytes)[0]
-        logger.info(f"消息长度: {msg_len}")
-        
-        # 检查消息长度是否合理
-        if msg_len > 1000 or msg_len < 0:
-            logger.error(f"消息长度不合理: {msg_len}")
-            return echostr
-        
-        # 提取加密数据（从第20字节开始）
-        encrypted_msg = encrypted_data[20:]
+        # 提取加密数据（从第16字节开始）
+        encrypted_msg = encrypted_data[16:]
         logger.info(f"加密数据长度: {len(encrypted_msg)}")
         
         # 使用真正的AES解密
@@ -200,12 +191,25 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
             unpadded_data = bytes(decrypted_data)
             logger.info(f"XOR解密完成，数据长度: {len(unpadded_data)}")
         
-        # 提取消息内容（前msg_len字节）
-        msg_content = unpadded_data[:msg_len]
+        # 现在解析解密后的数据
+        # 格式：random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
+        
+        # 提取消息长度（前4字节）
+        msg_len_bytes = unpadded_data[:4]
+        msg_len = struct.unpack("!I", msg_len_bytes)[0]
+        logger.info(f"消息长度: {msg_len}")
+        
+        # 检查消息长度是否合理
+        if msg_len > 1000 or msg_len < 0:
+            logger.error(f"消息长度不合理: {msg_len}")
+            return echostr
+        
+        # 提取消息内容（从第4字节开始，取msg_len字节）
+        msg_content = unpadded_data[4:4+msg_len]
         logger.info(f"消息内容长度: {len(msg_content)}")
         
         # 验证企业ID（msg_len字节之后的内容）
-        received_corpid = unpadded_data[msg_len:].decode('utf-8')
+        received_corpid = unpadded_data[4+msg_len:].decode('utf-8')
         logger.info(f"接收到的企业ID: {received_corpid}")
         logger.info(f"期望的企业ID: {corpid}")
         
