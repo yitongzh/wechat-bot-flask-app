@@ -694,12 +694,26 @@ def handle_message(request):
                     try:
                         # 尝试Base64解码
                         decoded_content = base64.b64decode(decrypted_xml)
-                        logger.info(f"Base64解码后内容: {decoded_content}")
+                        logger.info(f"Base64解码后内容长度: {len(decoded_content)}")
+                        logger.info(f"Base64解码后内容前50字节: {decoded_content[:50]}")
                         
-                        # 尝试解析为XML
+                        # 检查解码后的内容是否是有效的XML
                         try:
-                            decrypted_root = ET.fromstring(decoded_content.decode('utf-8'))
+                            # 尝试直接解析Base64解码后的内容
+                            xml_content = decoded_content.decode('utf-8')
+                            logger.info(f"UTF-8解码成功，XML内容: {xml_content}")
+                            decrypted_root = ET.fromstring(xml_content)
                             logger.info("成功解析为XML格式")
+                        except UnicodeDecodeError:
+                            # 如果UTF-8解码失败，说明可能是加密的数据
+                            logger.info("Base64解码后内容不是UTF-8文本，可能是加密数据")
+                            # 尝试直接解析原始解密内容
+                            try:
+                                decrypted_root = ET.fromstring(decrypted_xml)
+                                logger.info("成功解析原始解密内容为XML")
+                            except ET.ParseError:
+                                logger.error("无法解析为XML格式")
+                                return jsonify({'error': '无法解析消息格式'}), 400
                         except ET.ParseError:
                             # 如果不是XML，尝试直接解析原始内容
                             logger.info("解密内容不是XML格式，尝试直接解析")
