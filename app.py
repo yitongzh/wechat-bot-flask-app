@@ -311,6 +311,35 @@ def webhook():
         return handle_message(request)
 
 
+@app.route('/test_webhook', methods=['GET'])
+def test_webhook():
+    """测试webhook验证功能"""
+    try:
+        # 获取参数
+        msg_signature = request.args.get('msg_signature', '')
+        timestamp = request.args.get('timestamp', '')
+        nonce = request.args.get('nonce', '')
+        echostr = request.args.get('echostr', '')
+        
+        logger.info(f"测试webhook验证:")
+        logger.info(f"  msg_signature: {msg_signature}")
+        logger.info(f"  timestamp: {timestamp}")
+        logger.info(f"  nonce: {nonce}")
+        logger.info(f"  echostr: {echostr}")
+        
+        # 如果没有提供echostr，使用默认值
+        if not echostr:
+            echostr = "test_echostr_123456"
+        
+        # 直接返回echostr进行测试
+        logger.info(f"返回echostr: {echostr}")
+        return echostr
+        
+    except Exception as e:
+        logger.error(f"测试webhook异常: {e}")
+        return f"测试异常: {str(e)}", 500
+
+
 def verify_url(request):
     """验证回调URL - 企业微信验证接口"""
     try:
@@ -329,8 +358,6 @@ def verify_url(request):
         # 检查必要参数
         if not all([msg_signature, timestamp, nonce, echostr]):
             logger.warning("URL验证失败：缺少必要参数")
-            logger.warning(f"  需要: msg_signature, timestamp, nonce, echostr")
-            logger.warning(f"  实际: msg_signature={bool(msg_signature)}, timestamp={bool(timestamp)}, nonce={bool(nonce)}, echostr={bool(echostr)}")
             return "验证失败：参数不完整", 400
         
         # 获取配置
@@ -355,6 +382,7 @@ def verify_url(request):
                         crypto = WeChatCrypto(config.token, config.encoding_aes_key, config.corpid)
                         decrypted_echostr = crypto.decrypt_echostr(echostr)
                         logger.info(f"解密echostr成功: {decrypted_echostr}")
+                        # 直接返回纯文本
                         return decrypted_echostr
                     except Exception as e:
                         logger.error(f"解密echostr失败: {e}")
