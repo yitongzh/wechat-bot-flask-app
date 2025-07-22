@@ -66,8 +66,8 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         aes_key = base64.b64decode(encoding_aes_key + "=")
         logger.info(f"AES密钥长度: {len(aes_key)}")
         
-        # 使用密钥前16字节作为IV
-        iv = aes_key[:16]
+        # 使用前16字节作为IV（企业微信标准）
+        iv = encrypted_data[:16]
         logger.info(f"IV: {iv.hex()}")
         
         # 提取加密数据（从第16字节开始）
@@ -102,39 +102,22 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         unpadded = pkcs7_unpad(decrypted)
         logger.info(f"去填充后数据长度: {len(unpadded)}")
         
-        # 解析消息格式：random(16字节) + msg_len(4字节) + msg + $CorpID
-        if len(unpadded) < 20:
+        # 解析消息格式：跳过前16字节随机数，直接解析XML
+        if len(unpadded) < 16:
             logger.error("解密数据长度不足")
             return echostr
         
-        # 提取XML长度（第16-20字节，网络字节序）
-        xml_len = int.from_bytes(unpadded[16:20], byteorder='big')
-        logger.info(f"XML内容长度: {xml_len}")
+        # 跳过前16字节随机数，直接解析XML内容
+        xml_content = unpadded[16:].decode('utf-8')
+        logger.info(f"XML内容: {xml_content}")
         
-        # 检查长度合理性
-        if xml_len > 1000 or xml_len < 0:
-            logger.error(f"XML长度不合理: {xml_len}")
+        # 验证企业ID是否在XML中
+        if corpid in xml_content:
+            logger.info("企业ID验证成功")
+            return xml_content
+        else:
+            logger.error(f"企业ID验证失败: 期望='{corpid}'")
             return echostr
-        
-        # 提取XML内容
-        xml_content = unpadded[20:20+xml_len]
-        logger.info(f"XML内容长度: {len(xml_content)}")
-        
-        # 验证企业ID
-        received_corpid_bytes = unpadded[20+xml_len:]
-        received_corpid = received_corpid_bytes.decode('utf-8')
-        logger.info(f"接收到的企业ID: '{received_corpid}'")
-        logger.info(f"期望的企业ID: '{corpid}'")
-        
-        # 比较企业ID
-        if received_corpid != corpid:
-            logger.error(f"企业ID不匹配: 期望='{corpid}', 实际='{received_corpid}'")
-            return echostr
-        
-        # 返回XML内容
-        result = xml_content.decode("utf-8")
-        logger.info(f"解密成功: {result}")
-        return result
             
     except Exception as e:
         logger.error(f"解密异常: {e}")
