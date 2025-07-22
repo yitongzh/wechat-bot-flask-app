@@ -27,6 +27,9 @@ class WeChatBot:
         
         # 注册默认消息处理器
         self.register_message_handler("信息更新", self._handle_info_update)
+        self.register_message_handler("打开推送", self._handle_start_timer)
+        self.register_message_handler("关闭推送", self._handle_stop_timer)
+        self.register_message_handler("定时推送状态", self._handle_timer_status)
     
     def register_message_handler(self, keyword: str, handler: Callable):
         """注册消息处理器"""
@@ -89,6 +92,32 @@ class WeChatBot:
 *数据更新时间: 2025-01-22 15:30 EST*
 *仅供参考，投资有风险*"""
     
+    def _handle_start_timer(self, message: str, user_id: str) -> str:
+        """处理打开推送指令"""
+        logger.info(f"收到打开推送指令，来自用户: {user_id}")
+        if not self.running:
+            self.start_timer(60)  # 每分钟推送
+            return "✅ 定时推送已打开"
+        else:
+            return "⚠️ 定时推送已经在运行中"
+    
+    def _handle_stop_timer(self, message: str, user_id: str) -> str:
+        """处理关闭推送指令"""
+        logger.info(f"收到关闭推送指令，来自用户: {user_id}")
+        if self.running:
+            self.stop_timer()
+            return "🛑 定时推送已关闭"
+        else:
+            return "⚠️ 定时推送已经是关闭状态"
+    
+    def _handle_timer_status(self, message: str, user_id: str) -> str:
+        """处理定时推送状态查询指令"""
+        logger.info(f"收到定时推送状态查询，来自用户: {user_id}")
+        if self.running:
+            return "🟢 定时推送状态：正在运行中"
+        else:
+            return "🔴 定时推送状态：已关闭"
+    
     def start_timer(self, interval: int = 60):
         """启动定时发送功能"""
         if self.running:
@@ -115,10 +144,11 @@ class WeChatBot:
         """定时发送循环"""
         while self.running:
             try:
-                # 发送定时消息
-                success = self.client.send_text_message("1")
+                # 发送当前时间戳
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                success = self.client.send_text_message(f"⏰ 定时推送时间: {current_time}")
                 if success:
-                    logger.info(f"定时消息发送成功: {datetime.now()}")
+                    logger.info(f"定时消息发送成功: {current_time}")
                 else:
                     logger.error("定时消息发送失败")
                 
