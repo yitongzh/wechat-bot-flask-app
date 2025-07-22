@@ -26,6 +26,14 @@ from src.wx_stockbot.config import WeChatConfig, DEFAULT_CONFIG
 from src.wx_stockbot.bot import WeChatBot
 from src.wx_stockbot.client import WeChatClient
 
+# 尝试导入AES解密
+try:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import unpad
+    AES_AVAILABLE = True
+except ImportError:
+    AES_AVAILABLE = False
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -135,7 +143,7 @@ def timer_loop():
 
 
 def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
-    """使用纯Python实现的解密（主要方案）"""
+    """使用AES解密企业微信的echostr"""
     try:
         logger.info("开始解密...")
         import base64
@@ -170,20 +178,34 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         encrypted_msg = encrypted_data[20:]
         logger.info(f"加密数据长度: {len(encrypted_msg)}")
         
-        # 简单的XOR解密（仅用于测试）
-        # 注意：这不是真正的AES解密，只是为了让应用能运行
-        decrypted_data = bytearray()
-        for i, byte in enumerate(encrypted_msg):
-            decrypted_data.append(byte ^ random_16bytes[i % 16])
-        
-        logger.info(f"XOR解密完成，数据长度: {len(decrypted_data)}")
+        # 使用真正的AES解密
+        if AES_AVAILABLE:
+            logger.info("使用AES解密...")
+            cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
+            decrypted_data = cipher.decrypt(encrypted_msg)
+            
+            # 去除PKCS7填充
+            try:
+                unpadded_data = unpad(decrypted_data, AES.block_size)
+                logger.info(f"AES解密成功，数据长度: {len(unpadded_data)}")
+            except Exception as e:
+                logger.error(f"去除填充失败: {e}")
+                return echostr
+        else:
+            logger.warning("AES模块不可用，使用XOR解密（可能不正确）")
+            # 简单的XOR解密（仅用于测试）
+            decrypted_data = bytearray()
+            for i, byte in enumerate(encrypted_msg):
+                decrypted_data.append(byte ^ random_16bytes[i % 16])
+            unpadded_data = bytes(decrypted_data)
+            logger.info(f"XOR解密完成，数据长度: {len(unpadded_data)}")
         
         # 提取消息内容（前msg_len字节）
-        msg_content = decrypted_data[:msg_len]
+        msg_content = unpadded_data[:msg_len]
         logger.info(f"消息内容长度: {len(msg_content)}")
         
         # 验证企业ID（msg_len字节之后的内容）
-        received_corpid = decrypted_data[msg_len:].decode('utf-8')
+        received_corpid = unpadded_data[msg_len:].decode('utf-8')
         logger.info(f"接收到的企业ID: {received_corpid}")
         logger.info(f"期望的企业ID: {corpid}")
         
