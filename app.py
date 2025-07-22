@@ -26,6 +26,13 @@ from src.wx_stockbot.config import WeChatConfig, DEFAULT_CONFIG
 from src.wx_stockbot.bot import WeChatBot
 from src.wx_stockbot.client import WeChatClient
 
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # 尝试导入AES解密
 try:
     # 使用pyaes进行AES解密
@@ -128,13 +135,6 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         logger.error(f"详细错误: {traceback.format_exc()}")
         return echostr
 
-
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # 创建Flask应用
 app = Flask(__name__)
