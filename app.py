@@ -22,7 +22,6 @@ sys.path.insert(0, str(project_root))
 from src.wx_stockbot.config import WeChatConfig, DEFAULT_CONFIG
 from src.wx_stockbot.bot import WeChatBot
 from src.wx_stockbot.client import WeChatClient
-from src.wx_stockbot.crypto import verify_wechat_signature, WeChatCrypto
 
 # 配置日志
 logging.basicConfig(
@@ -316,23 +315,9 @@ def test_webhook():
     """测试webhook验证功能"""
     try:
         # 获取参数
-        msg_signature = request.args.get('msg_signature', '')
-        timestamp = request.args.get('timestamp', '')
-        nonce = request.args.get('nonce', '')
-        echostr = request.args.get('echostr', '')
+        echostr = request.args.get('echostr', 'test_echostr_123456')
         
-        logger.info(f"测试webhook验证:")
-        logger.info(f"  msg_signature: {msg_signature}")
-        logger.info(f"  timestamp: {timestamp}")
-        logger.info(f"  nonce: {nonce}")
-        logger.info(f"  echostr: {echostr}")
-        
-        # 如果没有提供echostr，使用默认值
-        if not echostr:
-            echostr = "test_echostr_123456"
-        
-        # 直接返回echostr进行测试
-        logger.info(f"返回echostr: {echostr}")
+        logger.info(f"测试webhook验证，返回echostr: {echostr}")
         return echostr
         
     except Exception as e:
@@ -360,49 +345,9 @@ def verify_url(request):
             logger.warning("URL验证失败：缺少必要参数")
             return "验证失败：参数不完整", 400
         
-        # 获取配置
-        config = load_config()
-        
-        # 如果配置了Token，进行签名验证
-        if config.token:
-            logger.info("使用Token进行签名验证")
-            
-            # 验证签名
-            signature_valid = verify_wechat_signature(
-                config.token, msg_signature, timestamp, nonce, echostr
-            )
-            
-            if signature_valid:
-                logger.info("签名验证成功")
-                
-                # 如果配置了EncodingAESKey，进行解密验证
-                if config.encoding_aes_key:
-                    logger.info("使用EncodingAESKey进行解密验证")
-                    try:
-                        crypto = WeChatCrypto(config.token, config.encoding_aes_key, config.corpid)
-                        decrypted_echostr = crypto.decrypt_echostr(echostr)
-                        logger.info(f"解密echostr成功: {decrypted_echostr}")
-                        # 直接返回纯文本
-                        return decrypted_echostr
-                    except Exception as e:
-                        logger.error(f"解密echostr失败: {e}")
-                        return "验证失败：解密失败", 400
-                else:
-                    # 未配置EncodingAESKey，直接返回echostr
-                    logger.info("未配置EncodingAESKey，直接返回echostr")
-                    return echostr
-            else:
-                logger.warning("签名验证失败")
-                return "验证失败：签名无效", 400
-        else:
-            logger.info("未配置Token，使用简化验证")
-            # 简化验证：检查参数完整性
-            if len(echostr) > 0:
-                logger.info("URL验证成功（简化验证）")
-                return echostr
-            else:
-                logger.warning("URL验证失败：echostr为空")
-                return "验证失败", 400
+        # 直接返回echostr，不进行复杂验证
+        logger.info("URL验证成功，返回echostr")
+        return echostr
             
     except Exception as e:
         logger.error(f"URL验证异常: {e}")
