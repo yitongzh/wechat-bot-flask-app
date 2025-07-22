@@ -31,8 +31,11 @@ try:
     from Crypto.Cipher import AES
     from Crypto.Util.Padding import unpad
     AES_AVAILABLE = True
-except ImportError:
+    logger.info("AES模块导入成功")
+except ImportError as e:
     AES_AVAILABLE = False
+    logger.error(f"AES模块导入失败: {e}")
+    logger.error("请确保pycryptodome已正确安装")
 
 # 配置日志
 logging.basicConfig(
@@ -149,6 +152,12 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         import base64
         import struct
         
+        # 检查AES模块是否可用
+        if not AES_AVAILABLE:
+            logger.error("AES模块不可用，无法进行企业微信解密")
+            logger.error("请确保pycryptodome已正确安装")
+            return echostr
+        
         # Base64解码
         encrypted_data = base64.b64decode(echostr)
         logger.info(f"Base64解码成功，数据长度: {len(encrypted_data)}")
@@ -169,27 +178,18 @@ def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
         encrypted_msg = encrypted_data[16:]
         logger.info(f"加密数据长度: {len(encrypted_msg)}")
         
-        # 使用真正的AES解密
-        if AES_AVAILABLE:
-            logger.info("使用AES解密...")
-            cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
-            decrypted_data = cipher.decrypt(encrypted_msg)
-            
-            # 去除PKCS7填充
-            try:
-                unpadded_data = unpad(decrypted_data, AES.block_size)
-                logger.info(f"AES解密成功，数据长度: {len(unpadded_data)}")
-            except Exception as e:
-                logger.error(f"去除填充失败: {e}")
-                return echostr
-        else:
-            logger.warning("AES模块不可用，使用XOR解密（可能不正确）")
-            # 简单的XOR解密（仅用于测试）
-            decrypted_data = bytearray()
-            for i, byte in enumerate(encrypted_msg):
-                decrypted_data.append(byte ^ random_16bytes[i % 16])
-            unpadded_data = bytes(decrypted_data)
-            logger.info(f"XOR解密完成，数据长度: {len(unpadded_data)}")
+        # 使用AES解密
+        logger.info("使用AES解密...")
+        cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
+        decrypted_data = cipher.decrypt(encrypted_msg)
+        
+        # 去除PKCS7填充
+        try:
+            unpadded_data = unpad(decrypted_data, AES.block_size)
+            logger.info(f"AES解密成功，数据长度: {len(unpadded_data)}")
+        except Exception as e:
+            logger.error(f"去除填充失败: {e}")
+            return echostr
         
         # 现在解析解密后的数据
         # 格式：random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
