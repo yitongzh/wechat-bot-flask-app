@@ -28,14 +28,14 @@ from src.wx_stockbot.client import WeChatClient
 
 # 尝试导入AES解密
 try:
-    from Crypto.Cipher import AES
-    from Crypto.Util.Padding import unpad
-    AES_AVAILABLE = True
-    logger.info("AES模块导入成功")
+    from wechatpy.crypto import WeChatCrypto
+    from wechatpy.utils import check_signature
+    WECHAT_CRYPTO_AVAILABLE = True
+    logger.info("wechatpy模块导入成功")
 except ImportError as e:
-    AES_AVAILABLE = False
-    logger.error(f"AES模块导入失败: {e}")
-    logger.error("请确保pycryptodome已正确安装")
+    WECHAT_CRYPTO_AVAILABLE = False
+    logger.error(f"wechatpy模块导入失败: {e}")
+    logger.error("请确保wechatpy已正确安装")
 
 # 配置日志
 logging.basicConfig(
@@ -146,81 +146,24 @@ def timer_loop():
 
 
 def decrypt_echostr_simple(echostr, encoding_aes_key, corpid):
-    """使用AES解密企业微信的echostr"""
+    """使用wechatpy解密企业微信的echostr"""
     try:
         logger.info("开始解密...")
-        import base64
-        import struct
         
-        # 检查AES模块是否可用
-        if not AES_AVAILABLE:
-            logger.error("AES模块不可用，无法进行企业微信解密")
-            logger.error("请确保pycryptodome已正确安装")
+        # 检查wechatpy模块是否可用
+        if not WECHAT_CRYPTO_AVAILABLE:
+            logger.error("wechatpy模块不可用，无法进行企业微信解密")
+            logger.error("请确保wechatpy已正确安装")
             return echostr
         
-        # Base64解码
-        encrypted_data = base64.b64decode(echostr)
-        logger.info(f"Base64解码成功，数据长度: {len(encrypted_data)}")
+        # 使用wechatpy的WeChatCrypto进行解密
+        logger.info("使用wechatpy解密...")
+        crypto = WeChatCrypto(None, encoding_aes_key, corpid)
         
-        # 获取EncodingAESKey
-        aes_key = base64.b64decode(encoding_aes_key + "=")
-        logger.info(f"AES密钥长度: {len(aes_key)}")
-        
-        # 企业微信echostr格式：
-        # 整个数据先用AES解密，解密后的格式为：
-        # random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
-        
-        # 提取随机数（前16字节）
-        random_16bytes = encrypted_data[:16]
-        logger.info(f"随机数: {random_16bytes.hex()}")
-        
-        # 提取加密数据（从第16字节开始）
-        encrypted_msg = encrypted_data[16:]
-        logger.info(f"加密数据长度: {len(encrypted_msg)}")
-        
-        # 使用AES解密
-        logger.info("使用AES解密...")
-        cipher = AES.new(aes_key, AES.MODE_CBC, random_16bytes)
-        decrypted_data = cipher.decrypt(encrypted_msg)
-        
-        # 去除PKCS7填充
-        try:
-            unpadded_data = unpad(decrypted_data, AES.block_size)
-            logger.info(f"AES解密成功，数据长度: {len(unpadded_data)}")
-        except Exception as e:
-            logger.error(f"去除填充失败: {e}")
-            return echostr
-        
-        # 现在解析解密后的数据
-        # 格式：random(16字节) + msg_len(4字节) + msg + $CorpID(企业ID)
-        
-        # 提取消息长度（前4字节）
-        msg_len_bytes = unpadded_data[:4]
-        msg_len = struct.unpack("!I", msg_len_bytes)[0]
-        logger.info(f"消息长度: {msg_len}")
-        
-        # 检查消息长度是否合理
-        if msg_len > 1000 or msg_len < 0:
-            logger.error(f"消息长度不合理: {msg_len}")
-            return echostr
-        
-        # 提取消息内容（从第4字节开始，取msg_len字节）
-        msg_content = unpadded_data[4:4+msg_len]
-        logger.info(f"消息内容长度: {len(msg_content)}")
-        
-        # 验证企业ID（msg_len字节之后的内容）
-        received_corpid = unpadded_data[4+msg_len:].decode('utf-8')
-        logger.info(f"接收到的企业ID: {received_corpid}")
-        logger.info(f"期望的企业ID: {corpid}")
-        
-        if received_corpid != corpid:
-            logger.error(f"企业ID不匹配: 期望={corpid}, 实际={received_corpid}")
-            return echostr
-        
-        # 返回解密后的消息
-        result = msg_content.decode('utf-8')
-        logger.info(f"解密成功: {result}")
-        return result
+        # 解密echostr
+        decrypted_echostr = crypto.decrypt_echostr(echostr)
+        logger.info(f"解密成功: {decrypted_echostr}")
+        return decrypted_echostr
             
     except Exception as e:
         logger.error(f"解密异常: {e}")
@@ -487,7 +430,7 @@ def verify_url(request):
             logger.info(f"  encoding_aes_key: {config.encoding_aes_key[:10]}...")
             logger.info(f"  corpid: {config.corpid}")
             
-            # 使用纯Python解密方案
+            # 使用wechatpy解密
             decrypted_echostr = decrypt_echostr_simple(echostr, config.encoding_aes_key, config.corpid)
             if decrypted_echostr and decrypted_echostr != echostr:
                 logger.info(f"解密成功，返回: {decrypted_echostr}")
